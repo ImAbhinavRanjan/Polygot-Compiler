@@ -55,19 +55,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Setup event listeners
     editor.on('change', handleEditorChange);
     document.getElementById('run-btn').addEventListener('click', handleRunCode);
-    document.getElementById('ai-debug-btn').addEventListener('click', () => {
-        alert('AI Debug feature coming soon.');
-    });
-
-    // Setup new event listeners
-    document.getElementById('template-select').addEventListener('change', loadTemplate);
-    document.getElementById('copy-code').addEventListener('click', copyCode);
-    document.getElementById('clear-editor').addEventListener('click', clearEditor);
-    document.getElementById('download-code').addEventListener('click', downloadCode);
-    document.getElementById('upload-btn').addEventListener('click', () => document.getElementById('upload-code').click());
-    document.getElementById('upload-code').addEventListener('change', uploadCode);
-    document.getElementById('font-increase').addEventListener('click', () => changeFontSize(1));
-    document.getElementById('font-decrease').addEventListener('click', () => changeFontSize(-1));
+    document.getElementById('analyze-complexity-btn').addEventListener('click', handleAnalyzeComplexity);
+    // Removed AI Debug and Optimize Code event listeners
+    document.getElementById('clear-editor-btn').addEventListener('click', clearEditor);
+    document.getElementById('copy-output-btn').addEventListener('click', copyOutput);
+    document.getElementById('increase-font-btn').addEventListener('click', () => adjustFontSize(1));
+    document.getElementById('decrease-font-btn').addEventListener('click', () => adjustFontSize(-1));
 });
 
 // Add this function to handle window load
@@ -212,4 +205,93 @@ async function handleRunCode() {
     } finally {
         spinner.classList.add('hidden');
     }
+}
+
+async function handleAnalyzeComplexity() {
+    console.log('Analyze button clicked'); // Debug log
+    const code = editor.getValue();
+    const outputElement = document.getElementById('output');
+    const spinner = document.querySelector('.loading-spinner');
+
+    if (!code.trim()) {
+        outputElement.textContent = 'Please enter some code to analyze.';
+        return;
+    }
+
+    spinner.classList.remove('hidden');
+    outputElement.textContent = 'Analyzing time complexity...';
+
+    try {
+        console.log('Sending request:', code); // Debug log
+        const response = await fetch(`${API_BASE_URL}/analyze-time-complexity/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ code: code })
+        });
+
+        console.log('Response status:', response.status); // Debug log
+        const data = await response.json();
+        console.log('Response data:', data); // Debug log
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to analyze complexity');
+        }
+
+        // Format the output
+        let output = 'Time Complexity Analysis:\n\n';
+        output += `Complexity: ${data.time_complexity}\n`;
+        output += `Explanation: ${getComplexityExplanation(data.time_complexity)}`;
+        
+        outputElement.textContent = output;
+    } catch (error) {
+        console.error('Analysis error:', error); // Debug log
+        outputElement.textContent = `Error: ${error.message}`;
+    } finally {
+        spinner.classList.add('hidden');
+    }
+}
+
+function getComplexityExplanation(complexity) {
+    const explanations = {
+        'O(1)': 'Constant time - no loops or recursion',
+        'O(log n)': 'Logarithmic time - typically divide and conquer algorithms',
+        'O(n)': 'Linear time - single loop through the input',
+        'O(n log n)': 'Linearithmic time - efficient sorting algorithms',
+        'O(2^n)': 'Exponential time - recursive algorithms'
+    };
+
+    if (complexity.startsWith('O(n^')) {
+        return 'Polynomial time - nested loops';
+    }
+
+    return explanations[complexity] || 'Complex algorithm';
+}
+
+// Clear the code editor
+function clearEditor() {
+    editor.setValue('');
+    updateLanguageDisplay('None');
+    setEditorMode('text/plain');
+}
+
+// Copy the output to the clipboard
+function copyOutput() {
+    const outputElement = document.getElementById('output');
+    const text = outputElement.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        showNotification('Output copied to clipboard!');
+    }).catch(err => {
+        console.error('Failed to copy output:', err);
+    });
+}
+
+// Adjust the font size of the code editor
+function adjustFontSize(change) {
+    const currentFontSize = parseInt(window.getComputedStyle(document.querySelector('.CodeMirror')).fontSize, 10);
+    const newFontSize = Math.max(10, currentFontSize + change); // Minimum font size is 10px
+    document.querySelector('.CodeMirror').style.fontSize = `${newFontSize}px`;
+    editor.refresh();
 }

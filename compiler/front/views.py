@@ -1,4 +1,3 @@
-
 from django.shortcuts import render
 from django.http import HttpResponse
 import json
@@ -9,6 +8,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import re
+import ast
+
 # Create your views here.
 
 def index(request):
@@ -138,11 +139,83 @@ def run_code_view(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def ai_debug_view(request):
-    return JsonResponse({'message': 'AI debugging feature coming soon'})
+def analyze_time_complexity_view(request):
+    try:
+        data = json.loads(request.body)
+        code = data.get('code', '').strip()
+        if not code:
+            return JsonResponse({'error': 'Code cannot be empty'}, status=400)
+
+        # Analyze time complexity
+        complexity = analyze_time_complexity(code)
+        return JsonResponse({'time_complexity': complexity})
+    except Exception as e:
+        return JsonResponse({'error': f"Time Complexity Analysis failed: {str(e)}"}, status=500)
+
+def analyze_time_complexity(code):
+    """
+    Analyze the time complexity of code using static analysis.
+    """
+    try:
+        tree = ast.parse(code)
+        analyzer = TimeComplexityAnalyzer()
+        return analyzer.analyze(tree)
+    except Exception as e:
+        return f"Error analyzing code: {str(e)}"
+
+class TimeComplexityAnalyzer:
+    def __init__(self):
+        self.complexity = "O(1)"
+        self.loop_depth = 0
+        self.recursive_calls = 0
+        self.has_divide_and_conquer = False
+
+    def analyze(self, tree):
+        self.visit(tree)
+        if self.recursive_calls > 0:
+            if self.has_divide_and_conquer:
+                return "O(n log n) (Divide and Conquer)"
+            return "O(2^n) (Recursive)"
+        elif self.loop_depth == 1:
+            return "O(n)"
+        elif self.loop_depth > 1:
+            return f"O(n^{self.loop_depth})"
+        return self.complexity
+
+    def visit(self, node):
+        if isinstance(node, ast.For) or isinstance(node, ast.While):
+            self.loop_depth += 1
+            for child in ast.iter_child_nodes(node):
+                self.visit(child)
+            self.loop_depth -= 1
+        elif isinstance(node, ast.FunctionDef):
+            self._analyze_function(node)
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            self.has_divide_and_conquer = True
+        else:
+            for child in ast.iter_child_nodes(node):
+                self.visit(child)
+
+    def _analyze_function(self, node):
+        # Check for recursive calls
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id == node.name:
+                self.recursive_calls += 1
+
+class RecursiveCallVisitor(ast.NodeVisitor):
+    def __init__(self, func_name):
+        self.func_name = func_name
+        self.has_recursion = False
+    
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id == self.func_name:
+            self.has_recursion = True
+        self.generic_visit(node)
 
 def run_python(code):
     try:
+        if not code.strip():
+            return {'error': 'Code cannot be empty'}
         result = subprocess.run(
             ['python', '-c', code],
             capture_output=True,
@@ -150,22 +223,24 @@ def run_python(code):
             timeout=5
         )
         if result.returncode == 0:
-            return {'output': result.stdout}
-        return {'error': result.stderr}
+            return {'output': result.stdout.strip()}
+        return {'error': result.stderr.strip()}
     except subprocess.TimeoutExpired:
         return {'error': 'Execution timed out'}
     except Exception as e:
-        return {'error': str(e)}
+        return {'error': f"Python execution failed: {str(e)}"}
 
 def run_cpp(code):
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        cpp_file = os.path.join(tmp_dir, 'temp.cpp')
-        output_file = os.path.join(tmp_dir, 'output')
-        
-        with open(cpp_file, 'w') as f:
-            f.write(code)
-        
-        try:
+    try:
+        if not code.strip():
+            return {'error': 'Code cannot be empty'}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cpp_file = os.path.join(tmp_dir, 'temp.cpp')
+            output_file = os.path.join(tmp_dir, 'output')
+
+            with open(cpp_file, 'w') as f:
+                f.write(code)
+
             # Compile
             compile_result = subprocess.run(
                 ['g++', cpp_file, '-o', output_file],
@@ -173,8 +248,8 @@ def run_cpp(code):
                 text=True
             )
             if compile_result.returncode != 0:
-                return {'error': f'Compilation error:\n{compile_result.stderr}'}
-            
+                return {'error': f'Compilation error:\n{compile_result.stderr.strip()}'}
+
             # Run
             run_result = subprocess.run(
                 [output_file],
@@ -183,21 +258,23 @@ def run_cpp(code):
                 timeout=5
             )
             if run_result.returncode == 0:
-                return {'output': run_result.stdout}
-            return {'error': run_result.stderr}
-        except subprocess.TimeoutExpired:
-            return {'error': 'Execution timed out'}
-        except Exception as e:
-            return {'error': str(e)}
+                return {'output': run_result.stdout.strip()}
+            return {'error': run_result.stderr.strip()}
+    except subprocess.TimeoutExpired:
+        return {'error': 'Execution timed out'}
+    except Exception as e:
+        return {'error': f"C++ execution failed: {str(e)}"}
 
 def run_java(code):
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        java_file = os.path.join(tmp_dir, 'Main.java')
-        
-        with open(java_file, 'w') as f:
-            f.write(code)
-        
-        try:
+    try:
+        if not code.strip():
+            return {'error': 'Code cannot be empty'}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            java_file = os.path.join(tmp_dir, 'Main.java')
+
+            with open(java_file, 'w') as f:
+                f.write(code)
+
             # Compile
             compile_result = subprocess.run(
                 ['javac', java_file],
@@ -205,8 +282,8 @@ def run_java(code):
                 text=True
             )
             if compile_result.returncode != 0:
-                return {'error': f'Compilation error:\n{compile_result.stderr}'}
-            
+                return {'error': f'Compilation error:\n{compile_result.stderr.strip()}'}
+
             # Run
             run_result = subprocess.run(
                 ['java', '-cp', tmp_dir, 'Main'],
@@ -215,9 +292,9 @@ def run_java(code):
                 timeout=5
             )
             if run_result.returncode == 0:
-                return {'output': run_result.stdout}
-            return {'error': run_result.stderr}
-        except subprocess.TimeoutExpired:
-            return {'error': 'Execution timed out'}
-        except Exception as e:
-            return {'error': str(e)}    
+                return {'output': run_result.stdout.strip()}
+            return {'error': run_result.stderr.strip()}
+    except subprocess.TimeoutExpired:
+        return {'error': 'Execution timed out'}
+    except Exception as e:
+        return {'error': f"Java execution failed: {str(e)}"}
